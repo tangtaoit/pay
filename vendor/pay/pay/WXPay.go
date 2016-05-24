@@ -6,9 +6,19 @@ import (
 	"net/http"
 	"bytes"
 	"io/ioutil"
-	"time"
 )
 
+
+
+type PaymentRequest struct {
+	AppId     string
+	PartnerId string
+	PrepayId  string
+	Package   string
+	NonceStr  string
+	Timestamp string
+	Sign      string
+}
 
 //微信预下单model
 type WXPrepay struct  {
@@ -54,18 +64,20 @@ func NewWXPrepayResult() *WXPrepayResult {
 }
 
 //预支付
-func ( self *WXPrepay) Prepay() (*WXPrepayResult,error) {
+func ( self *WXPrepay) Prepay() (PaymentRequest,error) {
+
+	var paymentRequest PaymentRequest;
 
 	order := self.newOrderRequest()
 	odrInXml := self.signedOrderRequestXmlString(order)
 	fmt.Println("print:",odrInXml);
 	resp, err := doHttpPost(GetWXpaySetting().PlaceOrderUrl, []byte(odrInXml))
 	if err != nil {
-		return nil, err
+		return paymentRequest, err
 	}
 	placeOrderResult, err := ParsePlaceOrderResult(resp)
 	if err != nil {
-		return nil, err
+		return paymentRequest, err
 	}
 
 	//Verify the sign of response
@@ -73,29 +85,52 @@ func ( self *WXPrepay) Prepay() (*WXPrepayResult,error) {
 	wantSign := Sign(resultInMap, GetWXpaySetting().AppKey)
 	gotSign := resultInMap["sign"]
 	if wantSign != gotSign {
-		return nil, fmt.Errorf("sign not match, want:%s, got:%s", wantSign, gotSign)
+		return paymentRequest, fmt.Errorf("sign not match, want:%s, got:%s", wantSign, gotSign)
 	}
 
 	if placeOrderResult.ReturnCode != "SUCCESS" {
-		return nil, fmt.Errorf("%s[%s]", placeOrderResult.ReturnMsg,placeOrderResult.ReturnCode)
+		return paymentRequest, fmt.Errorf("%s[%s]", placeOrderResult.ReturnMsg,placeOrderResult.ReturnCode)
 	}
 
 	if placeOrderResult.ResultCode != "SUCCESS" {
 
-		return nil, fmt.Errorf("%s[%s]", placeOrderResult.ErrCodeDesc,placeOrderResult.ErrCode)
+		return paymentRequest, fmt.Errorf("%s[%s]", placeOrderResult.ErrCodeDesc,placeOrderResult.ErrCode)
 	}
 
-	prepayResult := NewWXPrepayResult();
-	prepayResult.Appid=placeOrderResult.AppId
-	prepayResult.Noncestr=placeOrderResult.NonceStr
-	prepayResult.Package="Sign=WXPay"
-	prepayResult.Partnerid=GetWXpaySetting().Partner
-	prepayResult.Prepayid=placeOrderResult.PrepayId
-	prepayResult.Sign=placeOrderResult.Sign
-	prepayResult.Timestamp= time.Now().Unix()
 
-	return prepayResult, nil
 
+	return self.NewPaymentRequest(placeOrderResult.PrepayId), nil
+
+}
+
+func (self *WXPrepay) NewPaymentRequest(prepayId string) PaymentRequest {
+
+	conf :=GetWXpaySetting()
+
+	nonceStr :=NewNonceString()
+	timestampStr :=NewTimestampString()
+
+	param := make(map[string]string)
+	param["appid"] = conf.AppId
+	param["partnerid"] = conf.Partner
+	param["prepayid"] = prepayId
+	param["package"] = "Sign=WXPay"
+	param["noncestr"] = nonceStr
+	param["timestamp"] = timestampStr
+
+	sign := Sign(param, conf.AppKey)
+
+	payRequest := PaymentRequest{
+		AppId:     conf.AppId,
+		PartnerId: conf.Partner,
+		PrepayId:  prepayId,
+		Package:   "Sign=WXPay",
+		NonceStr:  nonceStr,
+		Timestamp: timestampStr,
+		Sign:      sign,
+	}
+
+	return payRequest
 }
 
 func (self *WXPrepay) newOrderRequest() map[string]string {

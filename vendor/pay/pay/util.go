@@ -13,7 +13,10 @@ import (
 
 func NewNonceString() string {
 	nonce := strconv.FormatInt(time.Now().UnixNano(), 36)
-	return fmt.Sprintf("%x", md5.Sum([]byte(nonce)))
+
+	nonceStr :=fmt.Sprintf("%x", md5.Sum([]byte(nonce)))
+	fmt.Println("111notice=",nonceStr)
+	return nonceStr
 }
 
 // SortAndConcat sort the map by key in ASCII order,
@@ -62,7 +65,7 @@ const ChinaTimeZoneOffset = 8 * 60 * 60 //Beijing(UTC+8:00)
 
 // NewTimestampString return
 func NewTimestampString() string {
-	return fmt.Sprintf("%d", time.Now().Unix()+ChinaTimeZoneOffset)
+	return fmt.Sprintf("%d", time.Now().Unix())
 }
 
 

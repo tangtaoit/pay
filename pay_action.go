@@ -165,7 +165,7 @@ func Recharge(w http.ResponseWriter, r *http.Request)  {
 }
 
 //微信预支付
-func WXPrepay(r *http.Request) (*pay.WXPrepayResult,error) {
+func WXPrepay(r *http.Request) (pay.PaymentRequest,error) {
 
 	notifyUrl :="http://"+":"+r.Host+"/pay/wxpay_callback"
 	fmt.Println(notifyUrl);
@@ -175,7 +175,6 @@ func WXPrepay(r *http.Request) (*pay.WXPrepayResult,error) {
 	wxPrepay.ClientIp="192.168.0.2"
 	wxPrepay.Desc="ceshixia"
 	wxPrepay.NotifyUrl=notifyUrl
-
 
 	return wxPrepay.Prepay();
 

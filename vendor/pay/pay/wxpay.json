@@ -1,7 +1,0 @@
-{
-  "app_id":"wx832f85feb2e76b14",
-  "app_key":"be9aded460e78703b889f18e2915ea6b",
-  "partner":"1230177801",
-  "place_order_url":"https://api.mch.weixin.qq.com/pay/unifiedorder",
-  "query_order_url":"https://api.mch.weixin.qq.com/pay/orderquery"
-}
