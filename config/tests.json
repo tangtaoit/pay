@@ -1,0 +1,9 @@
+{
+  "PrivateKeyPath": "keys/private_key",
+  "PublicKeyPath": "keys/public_key.pub",
+  "JWTExpirationDelta": 72,
+  "MysqlHost":"172.30.121.158:3306",
+  "MysqlPassword":"123456",
+  "MysqlUser":"tangtao",
+  "MysqlDB":"sampledb"
+}
