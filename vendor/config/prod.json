@@ -1,0 +1,10 @@
+{
+  "PublicKeyPath": "keys/public_key.pub",
+  "JWTExpirationDelta": 72,
+  "MysqlHost":"172.30.243.133:3306",
+  "MysqlPassword":"123456",
+  "MysqlUser":"tangtao",
+  "MysqlDB":"sampledb",
+  "TokenExpire":300,
+  "RedisAddress":"192.168.0.9:6379"
+}
