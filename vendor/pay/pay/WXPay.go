@@ -11,13 +11,13 @@ import (
 
 
 type PaymentRequest struct {
-	AppId     string
-	PartnerId string
-	PrepayId  string
-	Package   string
-	NonceStr  string
-	Timestamp string
-	Sign      string
+	AppId     string `json:"app_id"`
+	PartnerId string `json:"partner_id"`
+	PrepayId  string `json:"prepay_id"`
+	Package   string `json:"package"`
+	NonceStr  string `json:"noncestr"`
+	Timestamp string `json:"timestamp"`
+	Sign      string `json:"sign"`
 }
 
 //微信预下单model
