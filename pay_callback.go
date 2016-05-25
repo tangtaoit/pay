@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"log"
 	"encoding/xml"
-	"pay_BAK/comm"
+	"pay/comm"
 	"io"
 	"io/ioutil"
 )
