@@ -7,6 +7,8 @@ import (
 	"io/ioutil"
 	"os/exec"
 	"strings"
+	"bytes"
+	"github.com/sumory/idgen"
 )
 
 
@@ -49,10 +51,13 @@ func ReadJson( r io.ReadCloser,obj interface{})  error {
 	if err := r.Close(); err != nil {
 		panic(err)
 	}
-	if err := json.Unmarshal(body, obj); err != nil {
+	mdz:=json.NewDecoder(bytes.NewBuffer(body))
 
+	mdz.UseNumber()
+	err = mdz.Decode(obj)
+
+	if  err != nil {
 		return err;
-
 	}
 
 	return nil;
@@ -65,7 +70,16 @@ func GenerUUId()  string{
 	out, _ := exec.Command("uuidgen").Output()
 
 
-	return strings.TrimSpace(string(out))
+	return strings.Replace(strings.TrimSpace(string(out)),"-","",-1)
+}
+
+//生成APPID
+func GenerAppId() int64  {
+	err, idWorker := idgen.NewIdWorker(1)
+	CheckErr(err)
+	err,appid := idWorker.NextId()
+	CheckErr(err)
+	return appid;
 }
 
 type ResultError struct {

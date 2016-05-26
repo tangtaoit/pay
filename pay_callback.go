@@ -2,11 +2,12 @@ package main
 
 import (
 	"net/http"
-	"log"
 	"encoding/xml"
 	"pay/comm"
 	"io"
 	"io/ioutil"
+	"log"
+	"strconv"
 )
 
 type WXNotifyResult  struct{
@@ -54,6 +55,23 @@ type WXNotifyResult  struct{
 
 }
 
+type WXNotifyReturnModel struct  {
+	XMLName  xml.Name `xml:"xml"`
+	ReturnCode string `xml:"return_code"`
+
+	ReturnMsg string `xml:"return_msg"`
+	
+}
+
+func NewWXNotifyReturnModel(returnCode,returnMsg string) *WXNotifyReturnModel  {
+
+	returnModel := &WXNotifyReturnModel{}
+	returnModel.ReturnCode=returnCode
+	returnModel.ReturnMsg=returnMsg
+
+	return returnModel
+}
+
 //支付宝回调
 func AlipayCallback(w http.ResponseWriter, r *http.Request)  {
 
@@ -62,14 +80,30 @@ func AlipayCallback(w http.ResponseWriter, r *http.Request)  {
 
 func WXpayCallback(w http.ResponseWriter, r *http.Request)  {
 
-	log.Println("微信回调了...");
-
+	log.Println("-----------微信回调---------");
 	body, err := ioutil.ReadAll(io.LimitReader(r.Body, 1048576))
 
+	log.Println(string(body))
 	comm.CheckErr(err)
 	var wxNotifyResult WXNotifyResult;
 	comm.CheckErr(xml.Unmarshal(body,&wxNotifyResult))
 
-	log.Println("wxNotifyResult==",wxNotifyResult.ResultCode)
+	if wxNotifyResult.ResultCode!="SUCCESS" {
+		data,err := xml.Marshal(NewWXNotifyReturnModel("FAIL",wxNotifyResult.ErrCodeDes))
+		comm.CheckErr(err)
+		log.Println(string(data))
+		w.Write(data)
+		return;
+	}
+	outTradeNo:= wxNotifyResult.OutTradeNo
+	orderTypeStr := Substr(outTradeNo,0,1);
+	orderType,_ := strconv.Atoi(orderTypeStr)
+
+	//充值类订单
+	if orderType== Order_Type_Recharge {
+
+	}
+
+
 
 }

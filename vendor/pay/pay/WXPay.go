@@ -72,6 +72,8 @@ func ( self *WXPrepay) Prepay() (PaymentRequest,error) {
 	odrInXml := self.signedOrderRequestXmlString(order)
 	fmt.Println("print:",odrInXml);
 	resp, err := doHttpPost(GetWXpaySetting().PlaceOrderUrl, []byte(odrInXml))
+
+	fmt.Println("returnXML=",string(resp))
 	if err != nil {
 		return paymentRequest, err
 	}

@@ -5,20 +5,43 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"strings"
 	"pay/config"
-	"github.com/gorilla/mux"
 	"pay/comm"
 	"pay/db"
 	"time"
 	"fmt"
 	"pay/pay"
+	"crypto/md5"
+	"strconv"
 )
 
 const (
+	//等待交易
+	Trade_Status_Wait =0
+
+	//交易成功
+	Trade_Status_Success =1
+
+	//交易失败
+	Trade_Status_Fail =2
+)
+
+//支付类型
+const (
 	//支付宝
-	AliPay = iota
+	Pay_Type_AliPay = 1
 
 	//微信支付
-	WXPAY
+	Pay_Type_WXPAY =2
+)
+
+
+//订单类型
+const  (
+
+	//充值订单
+	Order_Type_Recharge = 1
+	//普通订单
+	Order_Type_CommOrder =2
 )
 
 type PayToken struct  {
@@ -27,14 +50,60 @@ type PayToken struct  {
 
 }
 
+type SignModel struct  {
 
-type RechargeModel struct {
+	Sign string `json:"sign"`
+	Noncestr string `json:"noncestr"`
+	Timestamp string `json:"timestamp"`
+}
 
-	//充值金额(单位分)
-	amount int64 `json:"amount"`
+type PrepayWrap  struct {
+
+	PayType int `json:"pay_type"`
+
+	Body interface{} `json:"body"`
+
+}
+
+func NewPrepayWrap(payType int,body interface{}) *PrepayWrap  {
+
+	wrap :=&PrepayWrap{}
+	wrap.PayType=payType
+	wrap.Body = body
+
+	return wrap
+}
+
+//交易model
+type TradeModel struct {
+
+	SignModel
+
+	AppId string `json:"app_id"`
+
+	//用户OPENID
+	OpenId string `json:"open_id"`
+
+	//交易金额(单位分)
+	Amount int64 `json:"amount"`
+
+	//交易类型
+	TradeType  int  `json:"trade_type"`
 
 	//支付类型 1.支付宝  2.微信
-	payType int `json:"pay_type"`
+	PayType int `json:"pay_type"`
+
+	//交易标题
+	Title string `json:"title"`
+	//描述
+	Description string `json:"description"`
+
+	ClientIp string `json:"client_ip"`
+}
+
+func (self *TradeModel) toMap() (map[string]string,error)  {
+
+	return  pay.ToMapOfJson(self)
 }
 
 
@@ -65,10 +134,7 @@ type AlipayOrderModel struct  {
 
 
 
-
-
 func (self *AlipayOrderModel) ToString()  string{
-
 
 
 	return fmt.Sprintf("partner=%s&seller_id=%s&out_trade_no=%s&subject=%s&body=%s&total_fee=%s&notify_url=%s&service=%s&payment_type=%s&_input_charset=%s&it_b_pay=%s&show_url=%s&app_id=%s",
@@ -90,11 +156,10 @@ func GetPayToken(w http.ResponseWriter, r *http.Request)  {
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	if isOk:=appIsOk(w,r);!isOk{
+	if _,_,_,isOk:=appIsOk(w,r);!isOk{
 		return;
 	}
-
-	authorization :=r.FormValue("auth_token");
+	authorization :=GetAuthToken(r);
 	token :=authPayToken(w,authorization);
 	if token==nil {return}
 
@@ -109,7 +174,8 @@ func GetPayToken(w http.ResponseWriter, r *http.Request)  {
 func BindPayInfo(w http.ResponseWriter, r *http.Request)  {
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	if isOk:=appIsOk(w,r);!isOk{
+	appid,_,_,isOk:=appIsOk(w,r)
+	if !isOk{
 		return;
 	}
 
@@ -122,9 +188,7 @@ func BindPayInfo(w http.ResponseWriter, r *http.Request)  {
 	if token==nil {return}
 
 	openId :=token.Claims["sub"].(string)
-
-	account := db.QueryAccount(openId)
-
+	account := db.QueryAccount(openId,appid)
 	if account==nil{
 		account =db.NewAccount()
 		account.OpenId=openId
@@ -141,39 +205,100 @@ func BindPayInfo(w http.ResponseWriter, r *http.Request)  {
 	}
 }
 
-//充值
-func Recharge(w http.ResponseWriter, r *http.Request)  {
+//统一下单接口
+func MakePrePayOrder(w http.ResponseWriter, r *http.Request)  {
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	token :=authPayToken(w,r.Header.Get("auth_token"));
-	if token==nil {return}
+	appid,appkey,basesign,isOk:=appIsOk(w,r)
+	if !isOk{
 
-	var rechargeModel *RechargeModel
-	comm.ReadJson(r.Body,&rechargeModel)
-
-	result,err := WXPrepay(r)
-
-	if err!=nil{
-
-		comm.ResponseError(w,http.StatusBadRequest,err.Error())
-	}else{
-		comm.WriteJson(w,result)
+		return;
+	}
+	sign := r.Header.Get("sign")
+	signs :=strings.Split(sign,".")
+	if len(signs)!=2 {
+		comm.ResponseError(w,http.StatusBadRequest,"非法请求!")
+		return
 	}
 
+	var tradeModel *TradeModel
+	comm.CheckErr(comm.ReadJson(r.Body,&tradeModel))
 
+	if tradeModel.OpenId=="" {
+		comm.ResponseError(w,http.StatusBadRequest,"用户open_id不能为空!")
+		return
+	}
 
+	signStr :=fmt.Sprintf("%s%s%s%s%d%d%d",basesign,appid,appkey,tradeModel.OpenId,tradeModel.Amount,tradeModel.PayType,tradeModel.TradeType)
+
+	wantSign := SignStr(signStr)
+	gotSign :=signs[1];
+	if wantSign!=gotSign {
+		fmt.Println("wantSign: ",wantSign,"gotSign: ",gotSign)
+		comm.ResponseError(w,http.StatusBadRequest,"签名不匹配!")
+		return
+	}
+
+	//pay.Sign(tradeModel.toMap(),)
+
+	if tradeModel.TradeType ==Order_Type_Recharge {
+		tradeModel.Title="账户充值"
+		tradeModel.Description="账户充值"
+	}
+
+	if tradeModel.Amount<=0 {
+		comm.ResponseError(w,http.StatusBadRequest,"充值金额不能小于或等于0");
+		return;
+	}
+	orderNo,err :=NewOrderNo(tradeModel.TradeType)
+	if err!=nil{
+		comm.ResponseError(w,http.StatusBadRequest,err.Error());
+		return;
+	}
+
+	var result interface{}
+	if tradeModel.PayType==Pay_Type_WXPAY {
+		result,err = WXPrepay(r,tradeModel,orderNo)
+		comm.CheckErr(err)
+	}else {
+		comm.ResponseError(w,http.StatusBadRequest,"不支持的支付方式["+strconv.Itoa(tradeModel.PayType)+"]")
+		return
+	}
+
+	if err!=nil{
+		comm.ResponseError(w,http.StatusBadRequest,err.Error())
+	}else{
+		trade := db.NewTrade()
+		trade.TradeNo=orderNo
+		trade.TradeType=Order_Type_Recharge
+		trade.AppId =appid
+		trade.OpenId = tradeModel.OpenId
+		trade.CreateTime = time.Now()
+		trade.UpdateTime =time.Now()
+		trade.ChangedAmount = tradeModel.Amount
+		trade.InOut = "IN"
+		trade.Title = tradeModel.Title
+		trade.Remark = tradeModel.Description
+		trade.Status = Trade_Status_Wait
+
+		if trade.Insert() {
+			comm.WriteJson(w,NewPrepayWrap(tradeModel.PayType,result))
+		}else{
+			comm.ResponseError(w,http.StatusBadRequest,"订单入库出错!")
+		}
+	}
 }
 
 //微信预支付
-func WXPrepay(r *http.Request) (pay.PaymentRequest,error) {
+func WXPrepay(r *http.Request,tradeModel *TradeModel,orderNo string) (pay.PaymentRequest,error) {
+
 
 	notifyUrl :="http://"+r.Host+"/pay/wxpay_callback"
-	fmt.Println(notifyUrl);
 	wxPrepay := pay.NewWXPrepay()
-	wxPrepay.OrderId=pay.NewNonceString()
-	wxPrepay.Amount="1"
-	wxPrepay.ClientIp="192.168.0.2"
-	wxPrepay.Desc="ceshixia"
+	wxPrepay.OrderId=orderNo
+	wxPrepay.Amount= fmt.Sprintf("%d",tradeModel.Amount)
+	wxPrepay.ClientIp=tradeModel.ClientIp
+	wxPrepay.Desc=tradeModel.Description
 	wxPrepay.NotifyUrl=notifyUrl
 
 	return wxPrepay.Prepay();
@@ -234,15 +359,67 @@ func authPayToken(w http.ResponseWriter,userToken string) *jwt.Token {
 	}
 }
 
-func appIsOk(w http.ResponseWriter,r *http.Request) bool {
-	vars := mux.Vars(r);
-	app_id := vars["app_id"];
-	app_key := vars["app_key"];
-
-	if err:=comm.AuthApp(app_id,app_key);err!=nil{
-		comm.ResponseError(w,http.StatusUnauthorized,"appid和appkey不合法!")
-		return false;
+func appIsOk(w http.ResponseWriter,r *http.Request) (string, string,string,bool) {
+	app_id := r.Header.Get("app_id");
+	if app_id=="" {
+		comm.ResponseError(w,http.StatusBadRequest,"app_id不能为空!");
+		return "","","",false;
 	}
 
-	return true;
+	app := db.NewAPP()
+	app = app.QueryCanUseApp(app_id)
+
+	if app==nil {
+		comm.ResponseError(w,http.StatusBadRequest,"系统中没有此应用信息!");
+		return app_id,"","",false;
+	}
+
+	sign :=r.Header.Get("sign")
+
+	if sign =="" {
+		comm.ResponseError(w,http.StatusBadRequest,"签名信息(sign)不能为空!");
+		return app_id,app.AppKey,"",false;
+	}
+	signs := strings.Split(sign,".")
+	gotSign := signs[0]
+
+	noncestr :=r.Header.Get("noncestr")
+	timestamp :=r.Header.Get("timestamp")
+
+	if noncestr=="" {
+		comm.ResponseError(w,http.StatusBadRequest,"随机码不能为空!");
+		return app_id,app.AppKey,"",false;
+	}
+
+	if timestamp=="" {
+		comm.ResponseError(w,http.StatusBadRequest,"时间戳不能为空!");
+		return app_id,app.AppKey,"",false;
+	}
+
+
+	 timestam64,_ := strconv.ParseInt(timestamp,10,64)
+	timeBtw := time.Now().Unix()-int64(timestam64)
+
+	if timeBtw > 5*60 {
+		comm.ResponseError(w,http.StatusBadRequest,"签名已失效!");
+		return app_id,app.AppKey,"",false;
+	}
+
+	signStr:= fmt.Sprintf("%s%s%s",app.AppKey,noncestr,timestamp)
+	wantSign :=fmt.Sprintf("%X",md5.Sum([]byte(signStr)))
+
+
+	if gotSign!=wantSign {
+		fmt.Println("wantSign: ",wantSign,"gotSign: ",gotSign)
+		comm.ResponseError(w,http.StatusBadRequest,"请求不合法!");
+		return app_id,app.AppKey,"",false;
+	}
+
+
+	if app==nil{
+		comm.ResponseError(w,http.StatusUnauthorized,"应用信息未找到!请检查APPID是否正确");
+		return app_id,app.AppKey,"",false;
+	}
+
+	return app_id,app.AppKey,gotSign,true;
 }

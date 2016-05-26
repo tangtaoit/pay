@@ -6,7 +6,16 @@ import (
 )
 
 func main() {
+
+
 	router := NewRouter([]Route{
+
+		Route{  //应用申请
+			"SubmitApp",
+			"POST",
+			"/pay/app",
+			SubmitApp,
+		},
 		Route{ //获取支付token
 			"GetPayToken",
 			"GET",
@@ -20,10 +29,10 @@ func main() {
 			BindPayInfo,
 		},
 		Route{  //充值
-			"Recharge",
+			"MakePrePayOrder",
 			"POST",
-			"/pay/recharge",
-			Recharge,
+			"/pay/makeorder",
+			MakePrePayOrder,
 		},
 		Route{  //支付宝回调
 			"AlipayCallback",
