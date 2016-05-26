@@ -34,6 +34,13 @@ func ResponseError(w http.ResponseWriter, statusCode int,msg string)  {
 	http.Error(w,"未知错误",500);
 }
 
+func ResponseSuccess(w http.ResponseWriter)  {
+
+	err := NewResultError(0,"OK")
+	WriteJson(w,err)
+
+}
+
 func WriteJson(w io.Writer,obj interface{})  {
 
 	jsonData,_:= json.Marshal(obj);
@@ -87,4 +94,14 @@ type ResultError struct {
 	ErrCode int `json:"err_code"`
 	ErrMsg string `json:"err_msg"`
 
+}
+
+
+func NewResultError(errCode int,errMsg string) *ResultError  {
+
+	resultError := &ResultError{}
+	resultError.ErrCode=errCode;
+	resultError.ErrMsg=errMsg
+
+	return  resultError
 }

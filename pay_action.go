@@ -10,7 +10,6 @@ import (
 	"time"
 	"fmt"
 	"pay/pay"
-	"crypto/md5"
 	"strconv"
 )
 
@@ -156,7 +155,7 @@ func GetPayToken(w http.ResponseWriter, r *http.Request)  {
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	if _,_,_,isOk:=appIsOk(w,r);!isOk{
+	if _,_,_,isOk:=AppIsOk(w,r);!isOk{
 		return;
 	}
 	authorization :=GetAuthToken(r);
@@ -174,7 +173,7 @@ func GetPayToken(w http.ResponseWriter, r *http.Request)  {
 func BindPayInfo(w http.ResponseWriter, r *http.Request)  {
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	appid,_,_,isOk:=appIsOk(w,r)
+	appid,_,_,isOk:=AppIsOk(w,r)
 	if !isOk{
 		return;
 	}
@@ -209,7 +208,7 @@ func BindPayInfo(w http.ResponseWriter, r *http.Request)  {
 func MakePrePayOrder(w http.ResponseWriter, r *http.Request)  {
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	appid,appkey,basesign,isOk:=appIsOk(w,r)
+	appid,appkey,basesign,isOk:=AppIsOk(w,r)
 	if !isOk{
 
 		return;
@@ -357,69 +356,4 @@ func authPayToken(w http.ResponseWriter,userToken string) *jwt.Token {
 		comm.ResponseError(w,http.StatusUnauthorized,"token已失效!");
 		return nil;
 	}
-}
-
-func appIsOk(w http.ResponseWriter,r *http.Request) (string, string,string,bool) {
-	app_id := r.Header.Get("app_id");
-	if app_id=="" {
-		comm.ResponseError(w,http.StatusBadRequest,"app_id不能为空!");
-		return "","","",false;
-	}
-
-	app := db.NewAPP()
-	app = app.QueryCanUseApp(app_id)
-
-	if app==nil {
-		comm.ResponseError(w,http.StatusBadRequest,"系统中没有此应用信息!");
-		return app_id,"","",false;
-	}
-
-	sign :=r.Header.Get("sign")
-
-	if sign =="" {
-		comm.ResponseError(w,http.StatusBadRequest,"签名信息(sign)不能为空!");
-		return app_id,app.AppKey,"",false;
-	}
-	signs := strings.Split(sign,".")
-	gotSign := signs[0]
-
-	noncestr :=r.Header.Get("noncestr")
-	timestamp :=r.Header.Get("timestamp")
-
-	if noncestr=="" {
-		comm.ResponseError(w,http.StatusBadRequest,"随机码不能为空!");
-		return app_id,app.AppKey,"",false;
-	}
-
-	if timestamp=="" {
-		comm.ResponseError(w,http.StatusBadRequest,"时间戳不能为空!");
-		return app_id,app.AppKey,"",false;
-	}
-
-
-	 timestam64,_ := strconv.ParseInt(timestamp,10,64)
-	timeBtw := time.Now().Unix()-int64(timestam64)
-
-	if timeBtw > 5*60 {
-		comm.ResponseError(w,http.StatusBadRequest,"签名已失效!");
-		return app_id,app.AppKey,"",false;
-	}
-
-	signStr:= fmt.Sprintf("%s%s%s",app.AppKey,noncestr,timestamp)
-	wantSign :=fmt.Sprintf("%X",md5.Sum([]byte(signStr)))
-
-
-	if gotSign!=wantSign {
-		fmt.Println("wantSign: ",wantSign,"gotSign: ",gotSign)
-		comm.ResponseError(w,http.StatusBadRequest,"请求不合法!");
-		return app_id,app.AppKey,"",false;
-	}
-
-
-	if app==nil{
-		comm.ResponseError(w,http.StatusUnauthorized,"应用信息未找到!请检查APPID是否正确");
-		return app_id,app.AppKey,"",false;
-	}
-
-	return app_id,app.AppKey,gotSign,true;
 }
