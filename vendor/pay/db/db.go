@@ -3,7 +3,6 @@ package db
 import (
 	"pay/config"
 	"fmt"
-	"net/url"
 	"database/sql"
 	"pay/comm"
 	"time"
