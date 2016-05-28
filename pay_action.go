@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"pay/pay"
 	"strconv"
-	"FishChatServer/log"
 	"github.com/tangtaoit/util"
+	"log"
 )
 
 
@@ -279,7 +279,7 @@ func MakePrePayOrder(w http.ResponseWriter, r *http.Request)  {
 
 		defer func() {
 			if err:=recover();err!=nil{
-				log.Error(err)
+				log.Println(err)
 				tx.Rollback()
 			}
 		}()
