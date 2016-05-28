@@ -48,7 +48,7 @@ func main() {
 		Route{  //微信支付回调
 			"AlipayCallback",
 			"POST",
-			"/pay/test",
+			"/pay/wxpay_callback",
 			GetServerCallback(),
 		},
 	})
