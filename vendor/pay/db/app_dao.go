@@ -1,6 +1,9 @@
 package db
 
-import "pay/comm"
+import (
+	"time"
+	"github.com/tangtaoit/util"
+)
 
 type APP struct  {
 	Id uint64
@@ -17,6 +20,12 @@ type APP struct  {
 	//openID
 	OpenId string
 
+	//创建时间
+	CreateTime time.Time
+
+	//修改时间
+	UpdateTime time.Time
+
 }
 
 func NewAPP() *APP  {
@@ -26,23 +35,27 @@ func NewAPP() *APP  {
 
 func (self *APP)  Insert() error{
 
-	stmt,err :=db.Prepare("insert into app(app_id,open_id,app_key,app_name,app_desc,status) values(?,?,?,?,?,?)")
-	comm.CheckErr(err)
-	_,err =stmt.Exec(self.AppId,self.OpenId,self.AppKey,self.AppName,self.AppDesc,self.Status)
-	comm.CheckErr(err)
+	//nw :=time.Now()
+	self.CreateTime = time.Now()
+	self.UpdateTime= time.Now()
+
+	stmt,err :=GetDB().Prepare("insert into app(app_id,open_id,app_key,app_name,app_desc,status,create_time,update_time) values(?,?,?,?,?,?,?,?)")
+	util.CheckErr(err)
+	_,err =stmt.Exec(self.AppId,self.OpenId,self.AppKey,self.AppName,self.AppDesc,self.Status,self.CreateTime,self.UpdateTime)
+	util.CheckErr(err)
 	return err
 }
 
 //查询可用的APP
 func (self *APP) QueryCanUseApp(appId string) *APP {
 
-	stmt,err := db.Prepare("select id,app_id,open_id,app_key,app_name,app_desc,status from app where app_id=? and status=1")
-	comm.CheckErr(err)
+	stmt,err := GetDB().Prepare("select id,app_id,open_id,app_key,app_name,app_desc,status from app where app_id=? and status=1")
+	util.CheckErr(err)
 
 	rows,err := stmt.Query(appId);
 
 	defer rows.Close()
-	comm.CheckErr(err)
+	util.CheckErr(err)
 	if rows.Next()  {
 		app :=NewAPP()
 		rows.Scan(&app.Id,&app.AppId,&app.OpenId,&app.AppKey,&app.AppName,&app.AppDesc,&app.Status)

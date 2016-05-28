@@ -8,6 +8,11 @@ import (
 func main() {
 
 
+
+
+
+
+
 	router := NewRouter([]Route{
 
 		Route{  //应用申请
@@ -43,8 +48,8 @@ func main() {
 		Route{  //微信支付回调
 			"AlipayCallback",
 			"POST",
-			"/pay/wxpay_callback",
-			WXpayCallback,
+			"/pay/test",
+			GetServerCallback(),
 		},
 	})
 

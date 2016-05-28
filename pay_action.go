@@ -5,43 +5,16 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"strings"
 	"pay/config"
-	"pay/comm"
 	"pay/db"
 	"time"
 	"fmt"
 	"pay/pay"
 	"strconv"
-)
-
-const (
-	//等待交易
-	Trade_Status_Wait =0
-
-	//交易成功
-	Trade_Status_Success =1
-
-	//交易失败
-	Trade_Status_Fail =2
-)
-
-//支付类型
-const (
-	//支付宝
-	Pay_Type_AliPay = 1
-
-	//微信支付
-	Pay_Type_WXPAY =2
+	"FishChatServer/log"
+	"github.com/tangtaoit/util"
 )
 
 
-//订单类型
-const  (
-
-	//充值订单
-	Order_Type_Recharge = 1
-	//普通订单
-	Order_Type_CommOrder =2
-)
 
 type PayToken struct  {
 
@@ -162,11 +135,11 @@ func GetPayToken(w http.ResponseWriter, r *http.Request)  {
 	token :=authPayToken(w,authorization);
 	if token==nil {return}
 
-	paytoken := comm.GenerUUId();
+	paytoken := util.GenerUUId();
 	 sub,_:=token.Claims["sub"].(string)
 	key :=PAY_TOKEN_PREFIX+paytoken+sub;
 	SetAndExpire(key,"1",config.GetSetting().TokenExpire)
-	comm.WriteJson(w,NewPayToken(paytoken))
+	util.WriteJson(w,NewPayToken(paytoken))
 }
 
 //绑定支付信息
@@ -180,14 +153,16 @@ func BindPayInfo(w http.ResponseWriter, r *http.Request)  {
 
 	auth_token:=r.Header.Get("auth_token")
 	if auth_token==""{
-		comm.ResponseError(w,http.StatusBadRequest,"认证信息不能为空!");
+		util.ResponseError(w,http.StatusBadRequest,"认证信息不能为空!");
 		return;
 	}
 	token :=authPayToken(w,auth_token);
 	if token==nil {return}
 
 	openId :=token.Claims["sub"].(string)
-	account := db.QueryAccount(openId,appid)
+
+	account :=db.NewAccount()
+	account = account.QueryAccount(openId,appid)
 	if account==nil{
 		account =db.NewAccount()
 		account.OpenId=openId
@@ -195,12 +170,12 @@ func BindPayInfo(w http.ResponseWriter, r *http.Request)  {
 		account.CreateTime=time.Now()
 		account.Status=1
 
-		isSuccess := db.InsertAccount(account);
+		isSuccess := account.Insert();
 		if !isSuccess {
-			comm.ResponseError(w,http.StatusBadRequest,"添加账户失败!")
+			util.ResponseError(w,http.StatusBadRequest,"添加账户失败!")
 		}
 	}else{
-		comm.ResponseError(w,http.StatusBadRequest,"账户已存在!")
+		util.ResponseError(w,http.StatusBadRequest,"账户已存在!")
 	}
 }
 
@@ -208,7 +183,7 @@ func BindPayInfo(w http.ResponseWriter, r *http.Request)  {
 func MakePrePayOrder(w http.ResponseWriter, r *http.Request)  {
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	appid,appkey,basesign,isOk:=AppIsOk(w,r)
+	appId,appKey,basesign,isOk:=AppIsOk(w,r)
 	if !isOk{
 
 		return;
@@ -216,61 +191,72 @@ func MakePrePayOrder(w http.ResponseWriter, r *http.Request)  {
 	sign := r.Header.Get("sign")
 	signs :=strings.Split(sign,".")
 	if len(signs)!=2 {
-		comm.ResponseError(w,http.StatusBadRequest,"非法请求!")
+		util.ResponseError(w,http.StatusBadRequest,"非法请求!")
 		return
 	}
 
 	var tradeModel *TradeModel
-	comm.CheckErr(comm.ReadJson(r.Body,&tradeModel))
+	util.CheckErr(util.ReadJson(r.Body,&tradeModel))
 
 	if tradeModel.OpenId=="" {
-		comm.ResponseError(w,http.StatusBadRequest,"用户open_id不能为空!")
+		util.ResponseError(w,http.StatusBadRequest,"用户open_id不能为空!")
 		return
 	}
 
-	signStr :=fmt.Sprintf("%s%s%s%s%d%d%d",basesign,appid,appkey,tradeModel.OpenId,tradeModel.Amount,tradeModel.PayType,tradeModel.TradeType)
+	signStr :=fmt.Sprintf("%s%s%s%s%d%d%d",basesign,appId,appKey,tradeModel.OpenId,tradeModel.Amount,tradeModel.PayType,tradeModel.TradeType)
 
 	wantSign := SignStr(signStr)
 	gotSign :=signs[1];
 	if wantSign!=gotSign {
 		fmt.Println("wantSign: ",wantSign,"gotSign: ",gotSign)
-		comm.ResponseError(w,http.StatusBadRequest,"签名不匹配!")
+		util.ResponseError(w,http.StatusBadRequest,"签名不匹配!")
 		return
 	}
 
 	//pay.Sign(tradeModel.toMap(),)
 
-	if tradeModel.TradeType ==Order_Type_Recharge {
+	if tradeModel.TradeType ==Trade_Type_Recharge {
 		tradeModel.Title="账户充值"
 		tradeModel.Description="账户充值"
 	}
 
 	if tradeModel.Amount<=0 {
-		comm.ResponseError(w,http.StatusBadRequest,"充值金额不能小于或等于0");
+		util.ResponseError(w,http.StatusBadRequest,"充值金额不能小于或等于0");
 		return;
 	}
 	orderNo,err :=NewOrderNo(tradeModel.TradeType)
 	if err!=nil{
-		comm.ResponseError(w,http.StatusBadRequest,err.Error());
+		util.ResponseError(w,http.StatusBadRequest,err.Error());
 		return;
+	}
+
+	account := db.NewAccount()
+	account = account.QueryAccount(tradeModel.OpenId,appId)
+
+	if account==nil {
+		util.ResponseError(w,http.StatusBadRequest,"此用户还未开通支付功能!")
+		return
 	}
 
 	var result interface{}
 	if tradeModel.PayType==Pay_Type_WXPAY {
 		result,err = WXPrepay(r,tradeModel,orderNo)
-		comm.CheckErr(err)
+		util.CheckErr(err)
 	}else {
-		comm.ResponseError(w,http.StatusBadRequest,"不支持的支付方式["+strconv.Itoa(tradeModel.PayType)+"]")
+		util.ResponseError(w,http.StatusBadRequest,"不支持的支付方式["+strconv.Itoa(tradeModel.PayType)+"]")
 		return
 	}
 
 	if err!=nil{
-		comm.ResponseError(w,http.StatusBadRequest,err.Error())
+		util.ResponseError(w,http.StatusBadRequest,err.Error())
 	}else{
+
+		tx := db.Begin()
+
 		trade := db.NewTrade()
 		trade.TradeNo=orderNo
-		trade.TradeType=Order_Type_Recharge
-		trade.AppId =appid
+		trade.TradeType=Trade_Type_Recharge
+		trade.AppId =appId
 		trade.OpenId = tradeModel.OpenId
 		trade.CreateTime = time.Now()
 		trade.UpdateTime =time.Now()
@@ -280,11 +266,25 @@ func MakePrePayOrder(w http.ResponseWriter, r *http.Request)  {
 		trade.Remark = tradeModel.Description
 		trade.Status = Trade_Status_Wait
 
-		if trade.Insert() {
-			comm.WriteJson(w,NewPrepayWrap(tradeModel.PayType,result))
-		}else{
-			comm.ResponseError(w,http.StatusBadRequest,"订单入库出错!")
-		}
+		tradePay := db.NewTradePay()
+		tradePay.TradeNo=orderNo;
+		tradePay.PayAmount=tradeModel.Amount
+		tradePay.PayType=tradeModel.PayType
+
+		trade.InsertTx(tx)
+
+		tradePay.InsertTx(tx)
+
+		tx.Commit()
+
+		defer func() {
+			if err:=recover();err!=nil{
+				log.Error(err)
+				tx.Rollback()
+			}
+		}()
+
+		util.WriteJson(w,NewPrepayWrap(tradeModel.PayType,result))
 	}
 }
 
@@ -330,7 +330,7 @@ func WXPrepay(r *http.Request,tradeModel *TradeModel,orderNo string) (pay.Paymen
 func authPayToken(w http.ResponseWriter,userToken string) *jwt.Token {
 
 	if userToken==""{
-		comm.ResponseError(w,http.StatusBadRequest,"认证信息不能为空!");
+		util.ResponseError(w,http.StatusBadRequest,"认证信息不能为空!");
 		return nil;
 	}
 
@@ -340,11 +340,11 @@ func authPayToken(w http.ResponseWriter,userToken string) *jwt.Token {
 		var err error;
 		token, err = InitJWTAuthenticationBackend().FetchToken(userToken);
 		if err!=nil{
-			comm.ResponseError(w,http.StatusUnauthorized,"用户认证不通过!");
+			util.ResponseError(w,http.StatusUnauthorized,"用户认证不通过!");
 			return nil;
 		}
 	}else{
-		comm.ResponseError(w,http.StatusBadRequest,"用户认证信息格式不正确!");
+		util.ResponseError(w,http.StatusBadRequest,"用户认证信息格式不正确!");
 		return nil;
 	}
 
@@ -353,7 +353,7 @@ func authPayToken(w http.ResponseWriter,userToken string) *jwt.Token {
 		return token;
 
 	} else {
-		comm.ResponseError(w,http.StatusUnauthorized,"token已失效!");
+		util.ResponseError(w,http.StatusUnauthorized,"token已失效!");
 		return nil;
 	}
 }

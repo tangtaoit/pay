@@ -1,4 +1,4 @@
-package comm
+package util
 
 import (
 	"net/http"
@@ -9,6 +9,11 @@ import (
 	"strings"
 	"bytes"
 	"github.com/sumory/idgen"
+	"hash"
+	"sort"
+	"encoding/hex"
+	"crypto/md5"
+	"bufio"
 )
 
 
@@ -27,11 +32,8 @@ func CheckErr(err error)  {
 
 func ResponseError(w http.ResponseWriter, statusCode int,msg string)  {
 	err := ResultError{statusCode, msg}
-	if jsonData,er := json.Marshal(err);er==nil{
-		http.Error(w,string(jsonData),err.ErrCode)
-		return;
-	}
-	http.Error(w,"未知错误",500);
+
+	WriteJson(w,err)
 }
 
 func ResponseSuccess(w http.ResponseWriter)  {
@@ -104,4 +106,44 @@ func NewResultError(errCode int,errMsg string) *ResultError  {
 	resultError.ErrMsg=errMsg
 
 	return  resultError
+}
+
+
+// Sign 支付签名.
+//  params: 待签名的参数集合
+//  apiKey: api密钥
+//  fn:     func() hash.Hash, 如果为 nil 则默认用 md5.New
+func Sign(params map[string]string, apiKey string, fn func() hash.Hash) string {
+	if fn == nil {
+		fn = md5.New
+	}
+	h := fn()
+	bufw := bufio.NewWriterSize(h, 128)
+
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		if k == "sign" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		v := params[k]
+		if v == "" {
+			continue
+		}
+		bufw.WriteString(k)
+		bufw.WriteByte('=')
+		bufw.WriteString(v)
+		bufw.WriteByte('&')
+	}
+	bufw.WriteString("key=")
+	bufw.WriteString(apiKey)
+
+	bufw.Flush()
+	signature := make([]byte, hex.EncodedLen(h.Size()))
+	hex.Encode(signature, h.Sum(nil))
+	return string(bytes.ToUpper(signature))
 }

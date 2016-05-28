@@ -8,7 +8,9 @@ CREATE TABLE IF NOT EXISTS app(
   app_key VARCHAR(255) COMMENT '应用KEY',
   app_name VARCHAR(255) COMMENT '应用名称',
   app_desc VARCHAR(1000) COMMENT '应用描述',
-  status int COMMENT '应用状态 0.待审核 1.已审核'
+  status int COMMENT '应用状态 0.待审核 1.已审核',
+  create_time TIMESTAMP COMMENT '创建时间',
+  update_time TIMESTAMP COMMENT '更新时间'
 
 ) CHARACTER SET utf8;
 
@@ -53,10 +55,11 @@ CREATE TABLE IF NOT EXISTS trades(
   create_time TIMESTAMP COMMENT '创建时间',
   update_time TIMESTAMP COMMENT '更新时间',
   changed_amount NUMERIC(20,0) COMMENT '变动金额(单位:分)',
+  actual_amount  NUMERIC(20,0) COMMENT '实际支付金额',
   in_out VARCHAR(20) COMMENT 'IN 收入 OUT 支出',
   title VARCHAR(255) comment '交易标题',
   remark VARCHAR(1000) COMMENT '交易备注',
-  status INT COMMENT '状态 1.交易成功 0.待交易'
+  status INT COMMENT '状态 1.交易成功 0.待交易 2.交易错误'
 
 ) CHARACTER SET utf8;
 
@@ -66,5 +69,8 @@ CREATE TABLE IF NOT EXISTS trades_pay(
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   trade_no VARCHAR(255)  COMMENT '交易号',
   pay_type INT COMMENT '支付类型 0.支付宝 1.微信 2.账户余额',
-  pay_amount  NUMERIC(20,0) COMMENT '支付金额'
+  pay_amount  NUMERIC(20,0) COMMENT '支付金额',
+  actual_amount NUMERIC(20,0) COMMENT '实际付款金额',
+  status INT COMMENT '状态 1.交易成功 0.待交易 2.交易错误'
+
 ) CHARACTER SET utf8;

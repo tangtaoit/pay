@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"github.com/tangtaoit/util"
 )
 
 var environments = map[string]string{
 	"production":    "config/prod.json",
 	"preproduction": "config/pre.json",
-	"tests":         "../../tests.json",
+	"tests":         "config/tests.json",
 }
 
 type Settings struct {
@@ -33,7 +34,6 @@ var env = "preproduction"
 
 func Init() {
 	env = os.Getenv("GO_ENV")
-
 	pwd, _ := os.Getwd()
 	fmt.Println(pwd)
 	if env == "" {
@@ -47,12 +47,12 @@ func LoadSettingsByEnv(env string) {
 	content, err := ioutil.ReadFile(environments[env])
 	if err != nil {
 		fmt.Println("Error while reading config file", err)
+
+		util.CheckErr(err)
 	}
 	settings = &Settings{}
 	jsonErr := json.Unmarshal(content, &settings)
-	if jsonErr != nil {
-		fmt.Println("Error while parsing config file", jsonErr)
-	}
+	util.CheckErr(jsonErr)
 }
 
 
