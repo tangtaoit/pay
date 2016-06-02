@@ -25,6 +25,8 @@ type Settings struct {
         TokenExpire        float32
 
 	RedisAddress string
+	//amqp地址
+	AmqpUrl string
 
 }
 

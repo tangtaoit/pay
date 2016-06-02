@@ -8,6 +8,7 @@ import (
 	"github.com/tangtaoit/util"
 	"log"
 	"io/ioutil"
+	"pay/config"
 )
 
 func GetRouters()  *mux.Router{
@@ -77,7 +78,7 @@ func TestTimeout(w http.ResponseWriter, r *http.Request)  {
 func main() {
 
 
-	queue.SetupAMQP("")
+	queue.SetupAMQP(config.GetSetting().AmqpUrl)
 
 	
 	http.ListenAndServe(":8080", GetRouters())

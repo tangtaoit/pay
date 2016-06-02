@@ -6,5 +6,6 @@
   "MysqlUser":"tangtao",
   "MysqlDB":"sampledb",
   "TokenExpire":300,
-  "RedisAddress":"192.168.0.9:6379"
+  "RedisAddress":"192.168.0.9:6379",
+  "AmqpUrl":"amqp://guest:guest@172.30.192.72:5672/"
 }

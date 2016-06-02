@@ -5,10 +5,9 @@
   "MysqlPassword":"123456",
   "MysqlUser":"tangtao",
   "MysqlDB":"sampledb",
-
   "TokenExpire":300,
-
-  "RedisAddress":"localhost:6378"
+  "RedisAddress":"localhost:6378",
+  "AmqpUrl":"amqp://guest:guest@localhost:5673/"
 
 
 
