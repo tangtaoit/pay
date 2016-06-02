@@ -13,9 +13,8 @@ import (
 	"pay/pay"
 	"strconv"
 	"pay/db"
-	"math"
 	"time"
-	"github.com/gocraft/dbr"
+	"github.com/tangtaoit/queue"
 )
 
 var (
@@ -23,6 +22,37 @@ var (
 	ErrNotFoundResultCode = errors.New("not found result_code parameter")
 	ErrNotFoundSign       = errors.New("not found sign parameter")
 )
+
+type NotifyTradeMsgModel  struct{
+	//交易号
+	TradeNo string
+	//交易类型 1.充值 2.普通支出
+	TradeType int
+	//第三方系统中的交易号
+	OutTradeNo string
+	//第三方系统中的交易类型
+	OutTradeType int
+	//应用ID
+	AppId string
+	//用户openID
+	OpenId string
+	//交易时间
+	TradeTime time.Time
+	//交易金额
+	 Amount int64
+	//交易标题
+	Title string
+	//交易备注
+	Remark string
+	//交易通知地址
+	NotifyUrl string
+
+}
+
+func NewNotifyTradeMsgModel() *NotifyTradeMsgModel {
+
+	return &NotifyTradeMsgModel{}
+}
 
 type WXNotifyResult  struct{
 	XMLName  xml.Name `xml:"xml"`
@@ -102,9 +132,7 @@ func (srv *Server) ApiKey() string {
 type WXNotifyReturnModel struct  {
 	XMLName  xml.Name `xml:"xml"`
 	ReturnCode string `xml:"return_code"`
-
 	ReturnMsg string `xml:"return_msg"`
-	
 }
 
 type Server struct {
@@ -143,13 +171,11 @@ func (srv *Server) Callback(w http.ResponseWriter, r *http.Request)  {
 			return
 		}
 		log.Println(string(requestBody))
-
 		msg, err := util.DecodeXMLToMap(bytes.NewReader(requestBody))
 		if err != nil {
 			errorHandler.ServeError(w, r, err)
 			return
 		}
-
 
 		returnCode, ok := msg["return_code"]
 		if returnCode == ReturnCodeSuccess || !ok {
@@ -160,7 +186,6 @@ func (srv *Server) Callback(w http.ResponseWriter, r *http.Request)  {
 				errorHandler.ServeError(w, r, err)
 				return
 			}
-
 			haveMchId := msg["mch_id"]
 			wantMchId := srv.mchId
 			if haveMchId != "" && wantMchId != "" && !security.SecureCompareString(haveMchId, wantMchId) {
@@ -168,7 +193,6 @@ func (srv *Server) Callback(w http.ResponseWriter, r *http.Request)  {
 				errorHandler.ServeError(w, r, err)
 				return
 			}
-
 			// 认证签名
 			haveSignature, ok := msg["sign"]
 			if !ok {
@@ -186,12 +210,10 @@ func (srv *Server) Callback(w http.ResponseWriter, r *http.Request)  {
 
 		ctx := &Context{
 			Server: srv,
-
 			ResponseWriter: w,
 			Request:        r,
 			RequestBody: requestBody,
 			Msg:         msg,
-
 			handlerIndex: initHandlerIndex,
 		}
 		srv.handler.ServeMsg(ctx)
@@ -208,178 +230,126 @@ func GetServerCallback()  http.HandlerFunc {
 
 		log.Println("dealing trade...");
 		out_trade_no,_ := cxt.Msg["out_trade_no"]
-
 		if out_trade_no!=""&&len(out_trade_no)>=1 {
 
 			orderType,_ :=strconv.Atoi(util.Substr(out_trade_no,0,1))
 			totalFeeStr := cxt.Msg["total_fee"]
 			totalFee,_  :=strconv.Atoi(totalFeeStr)
 			if orderType==Trade_Type_Recharge { //充值
-				err := AccountRecharge(out_trade_no,int64(totalFee))
+
+				err := AccountRecharge(out_trade_no,Pay_Type_WXPAY,int64(totalFee))
 				if err!=nil {
 					cxt.Server.errorHandler.ServeError(cxt.ResponseWriter,cxt.Request,err)
+				}else{
+					//通知第三方服务器
+					NotifyThirdServer(out_trade_no)
+					//返回成功
+					cxt.Response(map[string]string{
+						"return_code": "SUCCESS",
+						"return_msg": "OK",
+					})
 				}
 			}else{
 				err :=errors.New("trade type ["+strconv.Itoa(orderType)+"] is error]")
 				cxt.Server.errorHandler.ServeError(cxt.ResponseWriter,cxt.Request,err)
 			}
-
 		}else{
 			err :=errors.New("out_trade_no is nil")
 			cxt.Server.errorHandler.ServeError(cxt.ResponseWriter,cxt.Request,err)
 		}
 	}))
-
 	callbackServer := NewServer(pay.GetWXpaySetting().AppId,"",pay.GetWXpaySetting().AppKey,hander,nil)
-
 	return callbackServer.Callback
 }
 
+//通知第三方服务支付完成
+func NotifyThirdServer(tradeNo string) error  {
 
+	session := db.NewSession()
+	var trade *db.Trade
+	session.Select("*").From("trades").Where("trade_no=?",tradeNo).Where("status=?",Trade_Status_Success).Where("notify_status=?",0).LoadStruct(&trade)
 
+	if trade==nil{
+		fmt.Println("null")
+		log.Println("warning: 交易信息没有找到 或者交易通知状态不是待通知状态",tradeNo)
+		return errors.New(fmt.Sprintf("warning: 交易信息没有找到 交易号为[%s] 或者交易通知状态不是待通知状态",tradeNo))
+	}
+	fmt.Println("push")
+	msgModel := queue.NewTradeMsg()
+	msgModel.AppId=trade.AppId
+	msgModel.Amount = trade.ChangedAmount
+	msgModel.OpenId=trade.OpenId
+	msgModel.OutTradeNo=trade.OutTradeNo
+	msgModel.OutTradeType=trade.OutTradeType
+	msgModel.Remark=trade.Remark
+	msgModel.Title=trade.Title
+	msgModel.TradeTime=trade.UpdateTime
+	msgModel.TradeType=trade.TradeType
+	msgModel.NotifyUrl=trade.NotifyUrl
+	msgModel.TradeNo=tradeNo
+	msgModel.NoOnce=trade.NoOnce
+	//发送订单消息到队列
+	err := queue.PublishTradeMsg(msgModel)
+	
+	if err==nil {
+		//修改通知状态为已完成
+		updateNotifyStatus(Notify_Status_Finish,tradeNo)
+	}else{
+		fmt.Println(err)
+	}
+	return err
+}
+
+func updateNotifyStatus(notifyStatus int,tradeNo string)  {
+	session := db.NewSession()
+	session.Update("trades").Set("notify_status",notifyStatus).Where("trade_no=?",tradeNo).Exec()
+}
 
 //账户充值
-func AccountRecharge(tradeNo string,amount int64) error {
+func AccountRecharge(tradeNo string,payType int,amount int64) error {
 
-	//查询等待交易信息
-	trade := db.NewTrade()
-	trade =trade.QueryByTradeNo(tradeNo,Trade_Status_Wait)
-	if trade==nil {
-		return errors.New(fmt.Sprintf("trade[%s] not found or status is error!",tradeNo))
+	session := db.NewSession()
+	tx,er := session.Begin()
+	if er!= nil {
+		return er
 	}
-	//查询除了当前支付方式的其他支付方式是否付款完成
-	tradesPays := tradePaysStatusSuccess(tradeNo)
-
-	sess := db.NewSession()
-	//开启事务
-	tx,err := sess.Begin()
-	util.CheckErr(err)
-
-	var tradeStatus int
-	if tradesPays==nil{ //修改交易信息收到的实际金额和交易支付信息的对应支付方式的实际金额和交易成功状态
-
-		//应付款跟实际收到的金额不一致
-		if math.Abs(float64(trade.ChangedAmount))!=float64(amount) {
-
-			tradeStatus=Trade_Status_Fail
-			fmt.Println(fmt.Sprintf("weixin total_fee is %f  but ChangedAmount is %f",float64(amount),math.Abs(float64(trade.ChangedAmount))))
-
-		}else{
-			tradeStatus=Trade_Status_Success
-		}
-	}else{//如果其他支付方式付款完成并且加当前支付的金额等于需要支付的金额,那么交易成功完成
-
-		var actualedAmount int64
-		for _,tradepay:= range tradesPays {
-			actualedAmount =actualedAmount+tradepay.ActualAmount
-		}
-
-		actualedAmount=actualedAmount+amount
-		if math.Abs(float64(trade.ChangedAmount))!=float64(actualedAmount) {
-			//交易失败,并记录收到的金额
-			tradeStatus=Trade_Status_Fail
-		}else{
-			tradeStatus=Trade_Status_Success
-		}
-	}
-
-	tradeChangeAndRecordActualAmount(amount,tradeStatus,trade,Pay_Type_WXPAY,tx)
-
-	if tradeStatus==Trade_Status_Success {
-		accountChange(amount,trade,tx)
-	}
-	tx.Commit()
-
 	defer func() {
 		if err:=recover();err!=nil{
 			log.Println(err)
 			tx.Rollback()
-
-			sess.Close()
-
 		}
 	}();
 
+	trade,err :=TradeChange(amount,payType,tradeNo,tx)
+	if err!=nil{
+		tx.Rollback()
+		return err
+	}
 
-		//如果其他支付方式付款未完成
+	tradeStatus,err :=CalTradeStatus(amount,trade.ChangedAmount,trade.NoOnce,tradeNo)
+	if err!=nil{
+		tx.Rollback()
+		return err
+	}
 
+	if tradeStatus==Trade_Status_Success {
+		err = db.AccountAmountChange(amount,tradeNo,trade.OpenId,trade.AppId,tx)
+		if err!=nil{
+			tx.Rollback()
+			return err
+		}
+	}else{
+		log.Println("充值出现错误!")
+	}
+	tx.Commit()
 
+	log.Println("充值完成!")
 	return nil;
 }
 
-//交易失败,并记录收到的金额
-func tradeChangeAndRecordActualAmount(actualAmount int64,status int,trade *db.Trade,payType int,tx *dbr.Tx)  {
-
-	//更新实际交易金额和交易状态
-	_,err :=tx.Update("trades").Set("status",status).Set("actual_amount",trade.ActualAmount+actualAmount).Where("trade_no=?",trade.TradeNo).Exec()
-	util.CheckErr(err)
-	var tradePay *db.TradePay
-	err =tx.Select("*").From("trades_pay").Where("pay_type=?",payType).Where("trade_no=?",trade.TradeNo).LoadStruct(&tradePay)
-	util.CheckErr(err)
-	if tradePay!=nil{
-		_,err :=tx.Update("trades_pay").Where("id=?",trade.Id).Set("status",status).Set("actual_amount",tradePay.ActualAmount+actualAmount).Exec()
-		util.CheckErr(err)
-	}
-}
-
-func accountChange(changeAmount int64,trade *db.Trade,tx *dbr.Tx)  {
-
-	//修改账户余额
-	//如果用户没有创建账户,那么就创建一个新的账户
-	//添加账户变动记录
-	//将交易信息和交易支付信息状态置为成功并修改实际收到的交易金额
-
-	var account *db.Account
-	err:=tx.Select("*").From("accounts").Where("open_id=?",trade.OpenId).LoadStruct(&account)
-	util.CheckErr(err)
-
-	var amountBefrore int64
-	var amountAfter int64
-	if account==nil{
-		amountBefrore=0
-		amountAfter =changeAmount
-		account = db.NewAccount()
-		account.OpenId=trade.OpenId
-		account.AppId=trade.AppId
-		account.CreateTime=time.Now()
-		account.UpdateTime=time.Now()
-		account.Status=1
-		account.Amount=changeAmount
-		result,err :=tx.InsertInto("accounts").Columns("open_id","app_id","status","create_time","update_time","amount").Record(account).Exec()
-		util.CheckErr(err)
-		lastId,_ := result.LastInsertId()
-		account.Id=uint64(lastId)
-	}else{
-		amountBefrore=account.Amount
-		amountAfter = account.Amount+changeAmount
-
-		_,err :=tx.Update("accounts").Where("id=?",account.Id).Set("amount",account.Amount+changeAmount).Exec()
-		util.CheckErr(err)
-
-	}
-	accRecod :=db.NewAccountRecord()
-	accRecod.TradeNo=trade.TradeNo
-	accRecod.OpenId=account.OpenId
-	accRecod.AccountId=account.Id
-	accRecod.AmountBefore=amountBefrore
-	accRecod.AmountAfter=amountAfter
-	accRecod.ChangedAmount=trade.ChangedAmount
-	accRecod.AppId=account.AppId
-	accRecod.CreateTime=time.Now()
-	_,err =tx.InsertInto("accounts_record").Columns("trade_no","app_id","open_id","account_id","create_time","amount_before","amount_after","changed_amount").Record(accRecod).Exec()
-	util.CheckErr(err)
-
-}
 
 
 
 
 
-func tradePaysStatusSuccess(tradeNo string) []*db.TradePay {
-	sess := db.NewSession()
-	var tradePays []*db.TradePay
-	_,err :=sess.Select("*").From("trades_pay").Where("trade_no=?",tradeNo).Where("status=?",Trade_Status_Success).LoadStructs(&tradePays)
-	util.CheckErr(err)
 
-	return tradePays
-}

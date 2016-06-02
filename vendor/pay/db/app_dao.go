@@ -39,29 +39,20 @@ func (self *APP)  Insert() error{
 	self.CreateTime = time.Now()
 	self.UpdateTime= time.Now()
 
-	stmt,err :=GetDB().Prepare("insert into app(app_id,open_id,app_key,app_name,app_desc,status,create_time,update_time) values(?,?,?,?,?,?,?,?)")
+	session := NewSession()
+	_,err :=session.InsertInto("app").Columns("app_id","open_id","app_key","app_name","app_desc","status","create_time","update_time").Record(self).Exec()
 	util.CheckErr(err)
-	_,err =stmt.Exec(self.AppId,self.OpenId,self.AppKey,self.AppName,self.AppDesc,self.Status,self.CreateTime,self.UpdateTime)
-	util.CheckErr(err)
+
 	return err
 }
 
 //查询可用的APP
-func (self *APP) QueryCanUseApp(appId string) *APP {
+func (self *APP) QueryCanUseApp(appId string) (*APP,error) {
 
-	stmt,err := GetDB().Prepare("select id,app_id,open_id,app_key,app_name,app_desc,status from app where app_id=? and status=1")
-	util.CheckErr(err)
+	sess := NewSession()
+	var app *APP
+	_,err :=sess.Select("*").From("app").Where("app_id=?",appId).Where("status=?",1).LoadStructs(&app)
 
-	rows,err := stmt.Query(appId);
 
-	defer rows.Close()
-	util.CheckErr(err)
-	if rows.Next()  {
-		app :=NewAPP()
-		rows.Scan(&app.Id,&app.AppId,&app.OpenId,&app.AppKey,&app.AppName,&app.AppDesc,&app.Status)
-
-		return app
-	}
-
-	return nil;
+	return app,err;
 }

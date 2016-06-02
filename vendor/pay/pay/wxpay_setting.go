@@ -10,7 +10,7 @@ import (
 var wxenvironments = map[string]string{
 	"production":    "pay/wxpay.json",
 	"preproduction": "pay/wxpay.json",
-	"tests":         "../../wxpay.json",
+	"tests":         "pay/wxpay.json",
 }
 
 type WXpaySettings struct {

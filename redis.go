@@ -16,7 +16,7 @@ var MASTER_NAME string ="mymaster"
 
 var pl *pool.Pool;
 
-var mx *sync.Mutex
+var mx sync.Mutex
 
 func Init()  {
 

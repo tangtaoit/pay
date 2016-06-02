@@ -3,6 +3,7 @@ package db
 import (
 	_ "github.com/go-sql-driver/mysql"
 	"time"
+	"github.com/gocraft/dbr"
 	"database/sql"
 	"github.com/tangtaoit/util"
 )
@@ -24,6 +25,8 @@ type Account struct {
 
 	//创建时间
 	UpdateTime time.Time
+
+	Password string
 
 }
 
@@ -54,79 +57,104 @@ func NewAccountRecord()  *AccountRecord{
 	return &AccountRecord{}
 }
 
-const ACCOUNT_INSERT_SQL  =  "insert into accounts(app_id,open_id,amount,create_time,status) values(?,?,?,?,?)"
 
 func NewAccount() *Account {
 
 	return &Account{}
 }
 
-func (self *Account) QueryAccount(openId,appId string)  *Account {
+func (self *Account) QueryAccount(openId,appId string)  (*Account,error) {
 
-	rows,err := GetDB().Query("select id,app_id,open_id,amount,create_time,status from accounts where open_id=? and app_id=?",openId,appId)
-	defer rows.Close()
-
-	if err!=nil {
-		util.CheckErr(err)
-		return nil;
-	}
-
-	if rows.Next() {
-
-		var id uint64
-		var appId *string
-		var openId *string
-		var amount int64
-		var createTime *time.Time
-		var status int
-
-		err :=rows.Scan(&id,&appId,&openId,&amount,&createTime,&status)
-		if err!=nil {
-			util.CheckErr(err)
-			return nil;
-		}
-
-		account :=NewAccount()
-		account.Id=id;
-		account.CreateTime=*createTime;
-		account.Status=status;
-		account.Amount=amount
-		account.OpenId=*openId;
-		account.AppId=*appId
-
-		return account;
-	}
-
-	return nil;
+	session := NewSession()
+	var account *Account
+	_,err := session.Select("*").From("accounts").Where("open_id=?",openId).Where("app_id=?",appId).LoadStructs(&account)
+	return account,err;
 }
 
-func (account *Account) getInsertParam() [5]interface{}  {
 
-
-	return [5]interface{}{account.AppId,account.OpenId,account.Amount,account.CreateTime,account.Status}
-}
 
 //添加账户
-func (account *Account) Insert() bool {
+func (account *Account) Insert() error {
 
-	stmt,err := GetDB().Prepare(ACCOUNT_INSERT_SQL)
+	sess := NewSession()
+	_,err := sess.InsertInto("accounts").Columns("app_id","open_id","amount","create_time","update_time","status","password").Record(account).Exec()
 
-	defer stmt.Close()
+	return err;
+}
 
-	_,err =stmt.Exec(account.getInsertParam())
-	if err!=nil {
+func (self *Account) InsertTx(tx  *dbr.Tx) (sql.Result,error) {
 
-		util.CheckErr(err)
-		return false;
+	return tx.InsertInto("accounts").Columns("app_id","open_id","amount","create_time","status","password").Record(self).Exec()
+}
+
+func (self *Account) UpdatePwd(openId string,password string) error{
+
+	session :=NewSession()
+
+	_,err :=session.Update("accounts").Set("password",password).Set("update_time",time.Now()).Where("open_id=?",openId).Exec()
+
+	return err
+
+}
+
+func (self *AccountRecord) InsertTx(tx *dbr.Tx) error  {
+
+	_,err := tx.InsertInto("accounts_record").Columns("trade_no","app_id","open_id","account_id","amount_before","amount_after","changed_amount").Record(self).Exec()
+
+	return err
+}
+
+//账户金额改变
+func AccountAmountChange(changeAmount int64,tradeNo string,openId string,appId string,tx *dbr.Tx) error {
+
+	//修改账户余额
+	//如果用户没有创建账户,那么就创建一个新的账户
+	//添加账户变动记录
+	var account *Account
+	err:=tx.Select("*").From("accounts").Where("open_id=?",openId).LoadStruct(&account)
+	if err!=nil{
+		return err
 	}
 
-	return true;
+	var amountBefrore int64
+	var amountAfter int64
+	if account==nil{
+		amountBefrore=0
+		amountAfter =changeAmount
+		account = NewAccount()
+		account.OpenId=openId
+		account.AppId=appId
+		account.CreateTime=time.Now()
+		account.UpdateTime=time.Now()
+		account.Status=1
+		account.Amount=changeAmount
+		result,err := account.InsertTx(tx)
+		util.CheckErr(err)
+		lastId,_ := result.LastInsertId()
+		account.Id=uint64(lastId)
+	}else{
+		amountBefrore=account.Amount
+		amountAfter = account.Amount+changeAmount
+
+		_,err :=tx.Update("accounts").Where("id=?",account.Id).Set("amount",account.Amount+changeAmount).Exec()
+		util.CheckErr(err)
+
+	}
+	accRecod :=NewAccountRecord()
+	accRecod.TradeNo=tradeNo
+	accRecod.OpenId=account.OpenId
+	accRecod.AccountId=account.Id
+	accRecod.AmountBefore=amountBefrore
+	accRecod.AmountAfter=amountAfter
+	accRecod.ChangedAmount=changeAmount
+	accRecod.AppId=account.AppId
+	accRecod.CreateTime=time.Now()
+	err = accRecod.InsertTx(tx)
+	if err!=nil{
+		return err
+	}
+
+	return nil
 }
 
-func (self *Account) InsertTx(tx  *sql.Tx)  {
-	stmt,err := tx.Prepare(ACCOUNT_INSERT_SQL)
-	util.CheckErr(err)
-	_,err =stmt.Exec(self.getInsertParam())
-	util.CheckErr(err)
-}
 

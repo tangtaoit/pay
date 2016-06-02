@@ -3,17 +3,16 @@ package main
 import (
 	"net/http"
 	. "pay/route"
+	"github.com/tangtaoit/queue"
+	"github.com/gorilla/mux"
+	"github.com/tangtaoit/util"
+	"log"
+	"io/ioutil"
 )
 
-func main() {
+func GetRouters()  *mux.Router{
 
-
-
-
-
-
-
-	router := NewRouter([]Route{
+	return  NewRouter([]Route{
 
 		Route{  //应用申请
 			"SubmitApp",
@@ -24,7 +23,7 @@ func main() {
 		Route{ //获取支付token
 			"GetPayToken",
 			"GET",
-			"/pay/info/{app_id}/{app_key}",
+			"/pay/token",
 			GetPayToken,
 		},
 		Route{ //绑定支付信息
@@ -33,11 +32,17 @@ func main() {
 			"/pay/info/{app_id}/{app_key}",
 			BindPayInfo,
 		},
-		Route{  //充值
+		Route{  //预备支付
 			"MakePrePayOrder",
 			"POST",
-			"/pay/makeorder",
-			MakePrePayOrder,
+			"/pay/makeprepay",
+			MakePrePay,
+		},
+		Route{  //支付
+			"MakePay",
+			"POST",
+			"/pay/makepay",
+			MakePay,
 		},
 		Route{  //支付宝回调
 			"AlipayCallback",
@@ -51,7 +56,29 @@ func main() {
 			"/pay/wxpay_callback",
 			GetServerCallback(),
 		},
-	})
+		Route{  //test
+			"SetAccountPassword",
+			"POST",
+			"/pay/password",
+			SetAccountPassword,
+		},
 
-	http.ListenAndServe(":8080", router)
+	})
+}
+
+func TestTimeout(w http.ResponseWriter, r *http.Request)  {
+
+	byts,err := ioutil.ReadAll(r.Body)
+	util.CheckErr(err)
+	log.Println(string(byts))
+	util.ResponseSuccess(w)
+}
+
+func main() {
+
+
+	queue.SetupAMQP("")
+
+	
+	http.ListenAndServe(":8080", GetRouters())
 }

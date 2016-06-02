@@ -2,8 +2,7 @@ package db
 
 import (
 	"time"
-	"database/sql"
-	"github.com/tangtaoit/util"
+	"github.com/gocraft/dbr"
 )
 
 type Trade struct {
@@ -17,6 +16,10 @@ type Trade struct {
 	OutTradeNo string
 	//第三方系统中的交易类型
 	OutTradeType int
+	//通知地址
+	NotifyUrl string
+	//通知状态
+	NotifyStatus int
 	//应用ID
 	AppId string
 	//用户openID
@@ -29,14 +32,14 @@ type Trade struct {
 	ChangedAmount int64
 	//实际交易金额(单位:分)
 	ActualAmount int64
-	//IN 收入 OUT 支出
-	InOut string
 	//交易标题
 	Title string
 	//交易备注
 	Remark string
 	//状态 1.交易成功 0.待交易
 	Status int
+	//是否必须一次付清
+	NoOnce int
 
 }
 
@@ -44,17 +47,16 @@ type TradePay struct {
 	Id uint64
 	//交易号
 	TradeNo string
-
+	//付款人ID
+	OpenId string
 	//支付类型
 	PayType int
-	//支付金额
+	//创建时间
+	CreateTime time.Time
+	//修改时间
+	UpdateTime time.Time
+	//付款金额
 	PayAmount int64
-
-	//实际交易金额(单位:分)
-	ActualAmount int64
-
-	//状态 1.交易成功 0.待交易
-	Status int
 	
 }
 
@@ -63,17 +65,6 @@ func NewTradePay() *TradePay {
 	return &TradePay{}
 }
 
-const (
-
-	TRADE_UPDATE_STATUS_AND_ACTUALAMOUNT ="update trades set status=?,actual_amount=? where trade_no=?"
-
-	TRADE_PAY_UPDATE_STATUS_AND_ACTUALAMOUNT ="update trades_pay set status=?,actual_amount=? where trade_no=? and pay_type=?"
-
-	TRADE_QUERY_BY_TRADENO_AND_STATUS_SQL ="select id,trade_no,trade_type,out_trade_no,out_trade_type,app_id,open_id,create_time,update_time,changed_amount,actual_amount,in_out,title,remark,status from trades where trade_no=? and status=?"
-	TRADE_INSERT_SQL string ="insert into trades(trade_no,trade_type,out_trade_no,out_trade_type,app_id,open_id,create_time,update_time,changed_amount,actual_amount,in_out,title,remark,status) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-
-	TRADE_PAY_INSERT_SQL string="insert into trades_pay(trade_no,pay_type,pay_amount,actual_amount,status)values(?,?,?,?,?)"
-)
 
 func NewTrade()  *Trade{
 
@@ -82,71 +73,53 @@ func NewTrade()  *Trade{
 
 
 
-func (self *Trade) UpdateStatusAndActualAmountTx(tradeNo string,status int,actualAmount int64,tx *sql.Tx)  {
+func (self *Trade) QueryByTradeNo(tradeNo string) *Trade  {
 
-	Exec(tx,TRADE_UPDATE_STATUS_AND_ACTUALAMOUNT,status,actualAmount,tradeNo)
+	session := NewSession()
+	var trade *Trade
+	session.Select("*").From("trades").Where("trade_no=?",tradeNo).LoadStructs(&trade)
+
+	return trade;
+
 }
 
-func (self TradePay) UpdateStatusAndActualAmountTx(tradeNo string,status int,actualAmount int64,payType int,tx *sql.Tx) {
+func (self *Trade) InsertTx(tx *dbr.Tx) error {
 
-	Exec(tx,TRADE_PAY_UPDATE_STATUS_AND_ACTUALAMOUNT,status,actualAmount,tradeNo,payType)
-}
+	result,err :=tx.InsertInto("trades").Columns("trade_no","trade_type","out_trade_no","out_trade_type","app_id","open_id","create_time","update_time","changed_amount","actual_amount","title","remark","notify_url","notify_status","status","no_once").Record(self).Exec()
 
-func (self *Trade) QueryByTradeNo(tradeNo string,status int) *Trade  {
-
-	stmt,err:=GetDB().Prepare(TRADE_QUERY_BY_TRADENO_AND_STATUS_SQL)
-	util.CheckErr(err)
-	defer stmt.Close()
-
-	rows,err :=stmt.Query(tradeNo,status)
-	util.CheckErr(err)
-	defer rows.Close()
-
-	if rows.Next() {
-		err := rows.Scan(&self.Id,&self.TradeNo,&self.TradeType,&self.OutTradeNo,&self.OutTradeType,&self.AppId,&self.OpenId,&self.CreateTime,&self.UpdateTime,&self.ChangedAmount,&self.ActualAmount,&self.InOut,&self.Title,&self.Remark,&self.Status)
-		util.CheckErr(err)
-
-		return self;
+	tradeId,er := result.LastInsertId()
+	if er!=nil{
+		return er
 	}
-	return nil;
-
+	self.Id=uint64(tradeId)
+	return err
 }
 
-func (self *Trade) Insert() bool {
-	stmt,err:=GetDB().Prepare(TRADE_INSERT_SQL)
-	defer stmt.Close()
+func (self *TradePay) InsertTx(tx *dbr.Tx) error  {
 
-	util.CheckErr(err)
-	_,err =stmt.Exec(self.TradeNo,self.TradeType,self.OutTradeNo,self.OutTradeType,self.AppId,self.OpenId,self.CreateTime,self.UpdateTime,self.ChangedAmount,self.ActualAmount,self.InOut,self.Title,self.Remark,self.Status)
-	util.CheckErr(err)
-	return true
+	result,err := tx.InsertInto("trades_pay").Columns("trade_no","open_id","pay_type","pay_amount","create_time","update_time").Record(self).Exec()
+
+	if err==nil{
+		id,er := result.LastInsertId()
+		if er!=nil{
+			return er
+		}
+		self.Id=uint64(id)
+	}
+
+	return err
 }
 
-func (self *Trade) InsertTx(tx *sql.Tx)   {
 
-	stmt, err := tx.Prepare(TRADE_INSERT_SQL)
-	defer stmt.Close()
-	util.CheckErr(err)
-	_,err =stmt.Exec(self.TradeNo,self.TradeType,self.OutTradeNo,self.OutTradeType,self.AppId,self.OpenId,self.CreateTime,self.UpdateTime,self.ChangedAmount,self.ActualAmount,self.InOut,self.Title,self.Remark,self.Status)
-	util.CheckErr(err)
+//查询已交易支付信息
+func TradePayList(tradeNo string) ([]*TradePay,error) {
+	sess := NewSession()
+	var tradePays []*TradePay
+	_,err :=sess.Select("*").From("trades_pay").Where("trade_no=?",tradeNo).LoadStructs(&tradePays)
+	if err!=nil{
+		return nil,err
+	}
 
+	return tradePays,nil
 }
 
-func (self *TradePay) Insert() bool {
-
-	stmt,err:=GetDB().Prepare(TRADE_PAY_INSERT_SQL)
-	defer stmt.Close()
-	util.CheckErr(err)
-	_,err =stmt.Exec(self.TradeNo,self.PayType,self.PayAmount,self.ActualAmount,self.Status)
-	util.CheckErr(err)
-	return true
-}
-func (self *TradePay) InsertTx(tx *sql.Tx) bool {
-
-	stmt,err:=tx.Prepare(TRADE_PAY_INSERT_SQL)
-	defer stmt.Close()
-	util.CheckErr(err)
-	_,err =stmt.Exec(self.TradeNo,self.PayType,self.PayAmount,self.ActualAmount,self.Status)
-	util.CheckErr(err)
-	return true
-}
