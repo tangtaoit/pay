@@ -14,7 +14,7 @@ func SetupAMQP(url string)  {
 		url ="amqp://guest:guest@localhost:5673/"
 	}
 	var err error
-	connection, err = amqp.Dial("amqp://guest:guest@localhost:5673/")
+	connection, err = amqp.Dial(url)
 	util.CheckErr(err)
 }
 
