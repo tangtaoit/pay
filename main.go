@@ -77,7 +77,7 @@ func TestTimeout(w http.ResponseWriter, r *http.Request)  {
 
 func main() {
 
-	log.Println(config.GetSetting().AmqpUrl)
+	log.Println("amqpUrl="+config.GetSetting().AmqpUrl)
 
 	queue.SetupAMQP(config.GetSetting().AmqpUrl)
 
